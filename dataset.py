@@ -17,20 +17,38 @@ class QRDataset:
         for n, b in enumerate(backgrounds):
             self.bak_images[n] = cv2.resize(cv2.imread(b), bak_size)
 
+        objects = glob.glob("objects/*")
+        self.obj_images = []
+        for o in objects:
+            self.obj_images.append( cv2.imread(o) )
+
         sizes = (8*8,8*16,8*32)
         even_rots = (0,90,180,240,360)
 
         # Overlay qrcode on random backgrounds with random orientation
-        self.images = np.empty((n_samples, *image_size), dtype="uint8")
+        self.images = np.empty((n_samples, *image_size), dtype="int16")
         self.rotations = []
         self.sections = []
         self.n_sections = 9
         for n in tqdm(range(n_samples)):
-            
+
             # Select random background and rotate
             ran_bak = self.bak_images[np.random.randint(len(self.bak_images))]
             rot_bak = self.rotate_image(ran_bak, sample(even_rots,1)[0])
-            
+
+            # Add objects
+            for obj_n in range(np.random.randint(4)):
+                obj = sample(self.obj_images,1)[0]
+                obj = cv2.resize(obj, (np.random.randint(32,128), np.random.randint(32,128)))
+                obj = self.rotate_image(obj, np.random.randint(360))
+
+                indexx = np.random.randint(rot_bak.shape[0]-obj.shape[0])
+                indexy = np.random.randint(rot_bak.shape[1]-obj.shape[1])
+                for x in range(obj.shape[0]):
+                    for y in range(obj.shape[1]):
+                        if obj[x,y,0] < 255 and obj[x,y,1] < 255 and obj[x,y,2] < 255:
+                            rot_bak[indexx+x,indexy+y] = obj[x,y]
+
             # Generate reference square
             codesize = sample(sizes, 1)[0]
             rotation = np.random.randint(360)
@@ -51,11 +69,18 @@ class QRDataset:
             sectiony = (indexy+codesize/2)//(rot_bak.shape[1]//3)
             section = int(sectionx*3+sectiony)
 
+            # noise and stuff
+            darken_ratio = np.random.random()*0.5+0.5
+            rot_bak = rot_bak*darken_ratio
+            rot_bak += np.random.randint(-25,25,size=rot_bak.shape).astype("int8")
+
+            # Finalize
             self.rotations.append(rotation/360) # Value between 0 and 1
             self.sections.append(section)
             self.images[n] = cv2.resize(rot_bak, image_size[:2])
 
-        self.images = self.images.astype("float32")/255.0
+        self.images[self.images<0] = 0
+        self.images = self.images.astype("float16")/255.0
 
         # Convert labels to one hot
         self.sections = np.array(self.sections)
