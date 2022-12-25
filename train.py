@@ -70,7 +70,7 @@ with tf.device('/gpu:1'):
 
     model.save("cab")
 
-# for image, label in zip(val_dataset.images, val_dataset.labels):
-#     pred_label = np.argmax(model.predict(np.expand_dims(image, axis=0)))
-#     cv2.imshow(val_dataset.label_names[pred_label], cv2.resize(image, (1024,1024)))
-#     cv2.waitKey(100)
+for image, label in zip(val.images, val.sections):
+    pred_label = np.argmax(model.predict(np.expand_dims(image, axis=0)))
+    cv2.imshow(f"{pred_label}", cv2.resize(image, (128,128)))
+    cv2.waitKey(100)
