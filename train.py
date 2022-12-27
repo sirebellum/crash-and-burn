@@ -1,4 +1,5 @@
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 from tensorflow.keras import callbacks
 from tensorflow.keras import datasets, layers, models, regularizers
 from tensorflow.keras import Input, Model
@@ -23,12 +24,12 @@ def make_dataset(size=1000):
 if __name__ == "__main__":
     with tf.device('/gpu:1'):
 
-        batches = 3
-        threads = 24
+        batches = 2
+        threads = 32
         with Pool(threads) as p:
             data = p.map(make_dataset, [1000]*threads*batches)
-        trains = data[:threads*batches]
-        vals = data[threads*batches:]
+        trains = data[:30*batches]
+        vals = data[30*batches:]
 
         # Process stacks
         print("Stackin")
@@ -58,8 +59,11 @@ if __name__ == "__main__":
         val_rots = np.concatenate(val_rots, axis=0).astype("float16")
         val_onehot = np.concatenate(val_onehot, axis=0).astype("bool")
 
-        conv_reg = regularizers.L1L2(l1=1e-5, l2=1e-4)
+        conv_reg = regularizers.L1L2(l1=1e-4, l2=1e-4)
+
         inputs = Input(shape=val_data[0].shape, name="input")
+
+        # Common
         x = layers.Conv2D(8, (3, 3),
                         padding="valid",
                         activation='linear',
@@ -88,25 +92,46 @@ if __name__ == "__main__":
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(128, (3, 3),
+
+        # Localization
+        x0 = layers.Conv2D(64, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
+        x0 = layers.BatchNormalization()(x0)
+        x0 = layers.ReLU()(x0)
+        x0 = layers.MaxPooling2D((2,2))(x0)
+        x0 = layers.Flatten()(x0)
 
-        x = layers.Flatten()(x)
-        x = layers.Dense(64, activation="relu",
-                        kernel_regularizer=conv_reg,)(x)
-        x = layers.Dropout(0.3)(x)
-
+        output0 = layers.Dense(32, activation="relu",
+                        kernel_regularizer=conv_reg,)(x0)
+        output0 = layers.Dropout(0.3)(output0)
         output0 = layers.Dense(9,
                             activation="softmax",
-                            name="section_out")(x)
-        output1 = layers.Dense(1,
-                            activation="sigmoid",
-                            name="rot_out")(x)
+                            name="section_out")(output0)
+
+        # Rotation
+        x1 = layers.Conv2D(64, (3, 3),
+                        padding="valid",
+                        activation='linear',
+                        kernel_regularizer=conv_reg)(x)
+        x1 = layers.BatchNormalization()(x1)
+        x1 = layers.ReLU()(x1)
+        x1 = layers.Conv2D(128, (3, 3),
+                        padding="valid",
+                        activation='linear',
+                        kernel_regularizer=conv_reg)(x1)
+        x1 = layers.BatchNormalization()(x1)
+        x1 = layers.ReLU()(x1)
+        x1 = layers.MaxPooling2D((2,2))(x1)
+        x1 = layers.Flatten()(x1)
+
+        output1 = layers.Dense(32, activation="relu",
+                        kernel_regularizer=conv_reg,)(x1)
+        output1 = layers.Dropout(0.3)(output1)
+        output1 = layers.Dense(2,
+                            activation="softmax",
+                            name="rot_out")(output1)
 
         model = Model(inputs=inputs, outputs=[output0, output1])
         model.summary()
@@ -117,15 +142,17 @@ if __name__ == "__main__":
                       metrics={'section_out': 'categorical_accuracy'})
 
         model.fit(train_data, [train_onehot, train_rots],
-                  batch_size=256,
+                  batch_size=128,
                   validation_data=(val_data, [val_onehot, val_rots]),
-                  epochs=50)
+                  epochs=20)
         model.save("cab")
 
+    input("Press enter to continue with demo")
     for image, label in zip(val.images, val.sections):
         sect, rot = model.predict(np.expand_dims(image, axis=0))
-        rev_rot = (1-rot[0])*360
+        rev_rot = int(-rot[0][0]*360)
         pred_label = np.argmax(sect[0])
         image = (image*255).astype("uint8")
-        cv2.imshow(f"{pred_label}", rotate_image(cv2.resize(image, (128,128)), rev_rot))
-        cv2.waitKey(0)
+        cv2.imshow(f"{pred_label}", cv2.resize(image, (128,128)))
+        cv2.imshow(f"rotated", rotate_image(cv2.resize(image, (128,128)), rev_rot))
+        cv2.waitKey(500)

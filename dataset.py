@@ -22,7 +22,7 @@ class QRDataset:
         for o in objects:
             self.obj_images.append( cv2.imread(o) )
 
-        sizes = (8*8,8*16,8*32)
+        sizes = (8*12,8*16,8*24,8*32,8*48)
         even_rots = (0,90,180,240,360)
 
         # Overlay qrcode on random backgrounds with random orientation
@@ -33,21 +33,22 @@ class QRDataset:
         for n in tqdm(range(n_samples)):
 
             # Select random background and rotate
-            ran_bak = self.bak_images[np.random.randint(len(self.bak_images))]
-            rot_bak = self.rotate_image(ran_bak, sample(even_rots,1)[0])
+            bak = self.bak_images[np.random.randint(len(self.bak_images))]
+            bak = self.rotate_image(bak, sample(even_rots,1)[0])
 
             # Add objects
-            for obj_n in range(np.random.randint(4)):
+            for obj_n in range(np.random.randint(10)):
                 obj = sample(self.obj_images,1)[0]
-                obj = cv2.resize(obj, (np.random.randint(32,128), np.random.randint(32,128)))
+                obj = cv2.resize(obj, (np.random.randint(96,128), np.random.randint(96,128)))
                 obj = self.rotate_image(obj, np.random.randint(360))
 
-                indexx = np.random.randint(rot_bak.shape[0]-obj.shape[0])
-                indexy = np.random.randint(rot_bak.shape[1]-obj.shape[1])
+                indexx = np.random.randint(bak.shape[0]-obj.shape[0])
+                indexy = np.random.randint(bak.shape[1]-obj.shape[1])
                 for x in range(obj.shape[0]):
                     for y in range(obj.shape[1]):
-                        if obj[x,y,0] < 255 and obj[x,y,1] < 255 and obj[x,y,2] < 255:
-                            rot_bak[indexx+x,indexy+y] = obj[x,y]
+                        if obj[x,y,0] < 255 and obj[x,y,1] < 255 and obj[x,y,2] < 255 \
+                        and obj[x,y,0] > 0 and obj[x,y,1] > 0 and obj[x,y,2] > 0:
+                            bak[indexx+x,indexy+y] = obj[x,y]
 
             # Generate reference square
             codesize = sample(sizes, 1)[0]
@@ -55,29 +56,32 @@ class QRDataset:
             code = self.genCode(size=codesize, rotation=rotation)
 
             # Place randomly on background
-            indexx = np.random.randint(rot_bak.shape[0]-codesize)
-            indexy = np.random.randint(rot_bak.shape[1]-codesize)
+            indexx = np.random.randint(bak.shape[0]-codesize)
+            indexy = np.random.randint(bak.shape[1]-codesize)
             for x in range(codesize):
                 for y in range(codesize):
                     if code[x,y] != 69:
-                        rot_bak[indexx+x,indexy+y,0] = code[x,y]
-                        rot_bak[indexx+x,indexy+y,1] = code[x,y]
-                        rot_bak[indexx+x,indexy+y,2] = code[x,y]
+                        bak[indexx+x,indexy+y,0] = code[x,y]
+                        bak[indexx+x,indexy+y,1] = code[x,y]
+                        bak[indexx+x,indexy+y,2] = code[x,y]
 
             # Calculate which section code is in [0,8]
-            sectionx = (indexx+codesize/2)//(rot_bak.shape[0]//3)
-            sectiony = (indexy+codesize/2)//(rot_bak.shape[1]//3)
+            sectionx = (indexx+codesize/2)//(bak.shape[0]//3)
+            sectiony = (indexy+codesize/2)//(bak.shape[1]//3)
             section = int(sectionx*3+sectiony)
 
             # noise and stuff
             darken_ratio = np.random.random()*0.5+0.5
-            rot_bak = rot_bak*darken_ratio
-            rot_bak += np.random.randint(-25,25,size=rot_bak.shape).astype("int8")
+            bak = bak*darken_ratio
+            bak += np.random.randint(-5,5,size=bak.shape).astype("int8")
+            grayscale = np.random.randint(2)
+            if grayscale:
+                bak = np.stack([bak.mean(axis=-1)]*3, axis=-1).astype("uint8")
 
             # Finalize
-            self.rotations.append(rotation/360) # Value between 0 and 1
+            self.rotations.append([rotation/360, 1-(rotation/360)])
             self.sections.append(section)
-            self.images[n] = cv2.resize(rot_bak, image_size[:2])
+            self.images[n] = cv2.resize(bak, image_size[:2])
 
         self.images[self.images<0] = 0
         self.images = self.images.astype("float16")/255.0
@@ -154,5 +158,5 @@ if __name__ == "__main__":
 
     qrdataset = QRDataset(n_samples=1000)
     for image, section in zip(qrdataset.images, qrdataset.sections):
-        cv2.imshow(f"Section {section}", image)
+        cv2.imshow(f"Section {section}", image.astype("float32"))
         cv2.waitKey(250)
