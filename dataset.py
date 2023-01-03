@@ -12,18 +12,33 @@ class QRDataset:
         self.image_size = image_size
 
         backgrounds = glob.glob("backgrounds/*")
-        bak_size = (420,420)
-        self.bak_images = np.empty((len(backgrounds),*bak_size,3), dtype="uint8")
+        bak_size = image_size
+        self.bak_images = np.empty((len(backgrounds),*bak_size), dtype="int16")
         for n, b in enumerate(backgrounds):
-            self.bak_images[n] = cv2.resize(cv2.imread(b), bak_size)
+            self.bak_images[n] = cv2.resize(cv2.imread(b), bak_size[:2])
 
+        # Generate objects
         objects = glob.glob("objects/*")
-        self.obj_images = []
+        obj_images = []
+        print("Generating objects...")
         for o in objects:
-            self.obj_images.append( cv2.imread(o) )
+            for pert in range(1000):
+                obj = cv2.imread(o)
+                obj = cv2.resize(obj, (np.random.randint(8,64), np.random.randint(8,64)))
+                obj = self.rotate_image(obj, np.random.randint(360))
+                obj_images.append(obj)
 
-        sizes = (8*12,8*16,8*24,8*32,8*48)
+
+        # Generate reference squares
+        print("Generating squares...")
+        sizes = (8*2,8*4,8*8,8*12)
         even_rots = (0,90,180,240,360)
+        self.code_images = []
+        for pert in range(10000):
+            codesize = sample(sizes, 1)[0]
+            rotation = np.random.randint(360)
+            code = self.genCode(size=codesize, rotation=rotation)
+            self.code_images.append([code, codesize, rotation])
 
         # Overlay qrcode on random backgrounds with random orientation
         self.images = np.empty((n_samples, *image_size), dtype="int16")
@@ -37,33 +52,20 @@ class QRDataset:
             bak = self.rotate_image(bak, sample(even_rots,1)[0])
 
             # Add objects
-            for obj_n in range(np.random.randint(10)):
-                obj = sample(self.obj_images,1)[0]
-                obj = cv2.resize(obj, (np.random.randint(96,128), np.random.randint(96,128)))
-                obj = self.rotate_image(obj, np.random.randint(360))
-
+            num_objects = np.random.randint(10)
+            objs = sample(obj_images, num_objects)
+            for obj in objs:
                 indexx = np.random.randint(bak.shape[0]-obj.shape[0])
                 indexy = np.random.randint(bak.shape[1]-obj.shape[1])
-                for x in range(obj.shape[0]):
-                    for y in range(obj.shape[1]):
-                        if obj[x,y,0] < 255 and obj[x,y,1] < 255 and obj[x,y,2] < 255 \
-                        and obj[x,y,0] > 0 and obj[x,y,1] > 0 and obj[x,y,2] > 0:
-                            bak[indexx+x,indexy+y] = obj[x,y]
+                bak[indexx:indexx+obj.shape[0],indexy:indexy+obj.shape[1]] = obj
 
-            # Generate reference square
-            codesize = sample(sizes, 1)[0]
-            rotation = np.random.randint(360)
-            code = self.genCode(size=codesize, rotation=rotation)
-
-            # Place randomly on background
+            # Place code randomly on background
+            code, codesize, rotation = sample(self.code_images, 1)[0]
             indexx = np.random.randint(bak.shape[0]-codesize)
             indexy = np.random.randint(bak.shape[1]-codesize)
-            for x in range(codesize):
-                for y in range(codesize):
-                    if code[x,y] != 69:
-                        bak[indexx+x,indexy+y,0] = code[x,y]
-                        bak[indexx+x,indexy+y,1] = code[x,y]
-                        bak[indexx+x,indexy+y,2] = code[x,y]
+            block = bak[indexx:indexx+codesize,indexy:indexy+codesize]
+            code[code==69] = block[code==69]
+            bak[indexx:indexx+codesize,indexy:indexy+codesize] = code
 
             # Calculate which section code is in [0,8]
             sectionx = (indexx+codesize/2)//(bak.shape[0]//3)
@@ -71,20 +73,22 @@ class QRDataset:
             section = int(sectionx*3+sectiony)
 
             # noise and stuff
-            darken_ratio = np.random.random()*0.5+0.5
+            darken_ratio = 0.5+np.random.random()*0.5
             bak = bak*darken_ratio
             bak += np.random.randint(-5,5,size=bak.shape).astype("int8")
             grayscale = np.random.randint(2)
             if grayscale:
-                bak = np.stack([bak.mean(axis=-1)]*3, axis=-1).astype("uint8")
+                bak = np.stack([bak.mean(axis=-1)]*3, axis=-1).astype("int16")
 
             # Finalize
             self.rotations.append([rotation/360, 1-(rotation/360)])
             self.sections.append(section)
-            self.images[n] = cv2.resize(bak, image_size[:2])
+            self.images[n] = bak
 
         self.images[self.images<0] = 0
         self.images = self.images.astype("float16")/255.0
+
+        self.rotations = np.array(self.rotations)
 
         # Convert labels to one hot
         self.sections = np.array(self.sections)
@@ -110,7 +114,7 @@ class QRDataset:
             frame[size:size+size, size:size+size] = code
             code = self.rotate_image(frame, rotation, crop=True)
             code = cv2.resize(code, (size,size))
-        return code
+        return np.stack([code]*3, axis=-1)
 
     def rotate_image(self, image, angle, crop=True):
         image_center = tuple(np.array(image.shape[1::-1]) / 2)
