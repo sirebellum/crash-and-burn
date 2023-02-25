@@ -30,14 +30,14 @@ if __name__ == "__main__":
         inputs = Input(shape=val.image_size, name="input")
 
         # Common
-        x = layers.Conv2D(32, (3, 3),
+        x = layers.Conv2D(16, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg,)(inputs)
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(64, (3, 3),
+        x = layers.Conv2D(32, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg,)(x)
@@ -45,28 +45,28 @@ if __name__ == "__main__":
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
 
-        x = layers.Conv2D(128, (3, 3),
+        x = layers.Conv2D(64, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg)(x)
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(128, (3, 3),
+        x = layers.Conv2D(64, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg)(x)
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(128, (3, 3),
+        x = layers.Conv2D(64, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg)(x)
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(128, (3, 3),
+        x = layers.Conv2D(64, (3, 3),
                         padding="valid",
                         activation='linear',
                         kernel_regularizer=conv_reg)(x)
@@ -106,16 +106,16 @@ if __name__ == "__main__":
         model.fit(train.images, [train.onehot, train.rotations],
                   batch_size=256,
                   validation_data=(val.images, [val.onehot, val.rotations]),
-                  epochs=25,
+                  epochs=100,
                   callbacks=callbacks)
         model.save("cab")
 
-    # input("Press enter to continue with demo")
-    # for image, label in zip(val.images, val.sections):
-    #     sect, rot = model.predict(np.expand_dims(image, axis=0))
-    #     rev_rot = int(-rot[0][0]*360)
-    #     pred_label = np.argmax(sect[0])
-    #     image = (image*255).astype("uint8")
-    #     cv2.imshow(f"{pred_label}", cv2.resize(image, (128,128)))
-    #     cv2.imshow(f"rotated", rotate_image(cv2.resize(image, (128,128)), rev_rot))
-    #     cv2.waitKey(500)
+    input("Press enter to continue with demo")
+    for image, label in zip(val.images, val.sections):
+        sect, rot = model.predict(np.expand_dims(image, axis=0))
+        rev_rot = int(-rot[0][0]*360)
+        pred_label = np.argmax(sect[0])
+        image = (image*255).astype("uint8")
+        cv2.imshow(f"{pred_label}", cv2.resize(image, (128,128)))
+        cv2.imshow(f"rotated", rotate_image(cv2.resize(image, (128,128)), rev_rot))
+        cv2.waitKey(500)
