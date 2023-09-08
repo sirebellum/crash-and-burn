@@ -52,7 +52,7 @@ def train():
         writer = SummaryWriter()
 
         # Train the model
-        for _ in range(3):
+        for _ in range(42):
             bar = tqdm(dataloader)
             for data in bar:
     

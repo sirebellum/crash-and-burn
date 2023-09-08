@@ -25,7 +25,7 @@ for image, labels in dataset:
     with torch.no_grad():
         pred = model(image.unsqueeze(0))
     bbox_pred = (pred[0].squeeze().numpy()*512).astype('int')
-    rot_pred = (pred[1].squeeze().numpy()).astype('int')
+    rot_pred = pred[1].squeeze().numpy()
 
     # Convert sin and cos rot pred to degrees
     rot_pred = int(np.arctan2(rot_pred[0], rot_pred[1]) * 180 / np.pi)
