@@ -8,70 +8,42 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import LandingDataset
+from models import Net
+
+# Create the dataset
+dataset = LandingDataset(n_samples=10000, image_size=(3,512,512))
+dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
 device = torch.device("cpu")
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
     device = torch.device("mps")
-
-# CNN to locate and rotate a qr code
-class Net(nn.Module):
-    
-        def __init__(self):
-            super(Net, self).__init__()
-    
-            # Convolutional layers
-            self.conv1 = nn.Conv2d(3, 16, 3, padding=1)
-            self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
-            self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
-            self.conv4 = nn.Conv2d(64, 128, 3, padding=1)
-            self.conv5 = nn.Conv2d(128, 256, 3, padding=1)
-
-            # Fully connected layers
-            self.fc1 = nn.Linear(256*16*16, 4)
-
-        def forward(self, x):
-            # Convolutional layers
-            x = F.relu(self.conv1(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv2(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv3(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv4(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv5(x))
-            x = F.max_pool2d(x, 2)
-
-            # Fully connected layers
-            x = x.view(-1, 256*16*16)
-            x = self.fc1(x)
-            x = F.sigmoid(x)
-
-            return x
         
 # Custom loss function
 def custom_loss(outputs, labels):
 
     # Get the labels
     bbox_label = labels["bbox"].to(device).float()
+    rot_label = labels["rot"].to(device).float()
+    rot_label_n = 1 - rot_label
+    rot_label = torch.stack((rot_label, rot_label_n), dim=1)
 
     # Get the preds
-    bbox_pred = outputs
+    bbox_pred = outputs[0]
+    rot_pred = outputs[1]
 
-    # Calculate the MSE loss
+    # Calculate the bbox loss
     loss = F.mse_loss(bbox_pred, bbox_label)
+
+    # Calculate the rotation loss
+    loss += F.mse_loss(rot_pred, rot_label)
 
     return loss
 
-# Train the model
+# Train the model on bounding boxes
 def train():
          
-        # Create the dataset
-        dataset = LandingDataset(n_samples=10000, image_size=(3,512,512))
-        dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-    
         # Create the model
         model = Net().to(device)
     
@@ -82,7 +54,7 @@ def train():
         writer = SummaryWriter()
 
         # Train the model
-        for _ in range(10):
+        for _ in range(3):
             bar = tqdm(dataloader)
             for data in bar:
     
@@ -109,6 +81,7 @@ def train():
         example = torch.rand(1, 3, 512, 512)
         traced_script_module = torch.jit.trace(model, example)
         traced_script_module.save("model.pt")
+
 
 if __name__ == "__main__":
     train()
