@@ -1,166 +1,160 @@
+# Description: Create a generator dataset for use with torch model
+import torch
+import torch.nn.functional as F
+from torchvision.transforms.functional import rotate
 import cv2
-import numpy as np
-import glob
-from random import sample
-from math import pi
-import math
+from torch.utils.data import Dataset
+from glob import glob
 from tqdm import tqdm
 
-class QRDataset:
+# Class to generate images with a landing pad on a background
+class LandingDataset(Dataset):
 
-    def __init__(self, n_samples=10000, image_size=(64*3,64*3,3)):
+    def __init__(self, n_samples=10000, image_size=(3,1024,1024)):
+        self.n_samples = n_samples
         self.image_size = image_size
 
-        backgrounds = glob.glob("backgrounds/*")
-        bak_size = image_size
-        self.bak_images = np.empty((len(backgrounds),*bak_size), dtype="int16")
-        for n, b in enumerate(backgrounds):
-            self.bak_images[n] = cv2.resize(cv2.imread(b), bak_size[:2])
+        # Load the background images
+        background_paths = glob('backgrounds/*.jpg')
+        self.backgrounds = []
+        for path in background_paths:
+            img = cv2.imread(path).transpose(2,0,1)
+            img = torch.tensor(img).float()/255
+            self.backgrounds.append(img)
+        
+        # Load the objects
+        object_paths = glob('objects/*.jpg')
+        object_paths += glob('objects/*.png')
+        self.objects = []
+        for path in object_paths:
+            # Load the image
+            img = cv2.imread(path).transpose(2,0,1)
+            img = torch.tensor(img).float()/255
+            self.objects.append(img)
 
-        # Generate objects
-        objects = glob.glob("objects/*")
-        obj_images = []
-        print("Generating objects...")
-        for o in objects:
-            for pert in range(1000):
-                obj = cv2.imread(o)
-                obj = cv2.resize(obj, (np.random.randint(8,64), np.random.randint(8,64)))
-                obj = self.rotate_image(obj, np.random.randint(360))
-                obj_images.append(obj)
+        # Buffer of landing pad images
+        self.landing_buffer = []
 
+        # Generate the landing pad images
+        for i in tqdm(range(n_samples)):
+            self.landing_buffer.append(self.gen_full(size=image_size))
 
-        # Generate reference squares
-        print("Generating squares...")
-        sizes = (8*2,8*4,8*8,8*12)
-        even_rots = (0,90,180,240,360)
-        self.code_images = []
-        for pert in range(10000):
-            codesize = sample(sizes, 1)[0]
-            rotation = np.random.randint(360)
-            code = self.genCode(size=codesize, rotation=rotation)
-            self.code_images.append([code, codesize, rotation])
+    # Generate a full image with a landing pad
+    def gen_full(self, size=(3,1024,1024)):
 
-        # Overlay qrcode on random backgrounds with random orientation
-        self.images = np.empty((n_samples, *image_size), dtype="int16")
-        self.rotations = []
-        self.sections = []
-        self.n_sections = 9
-        for n in tqdm(range(n_samples)):
+        # Generate the landing pad of random size
+        landing, labels = self.gen_landing(size=size)
 
-            # Select random background and rotate
-            bak = self.bak_images[np.random.randint(len(self.bak_images))]
-            bak = self.rotate_image(bak, sample(even_rots,1)[0])
+        # Generate the background
+        background = self.gen_background(size=size)
 
-            # Add objects
-            num_objects = np.random.randint(10)
-            objs = sample(obj_images, num_objects)
-            for obj in objs:
-                indexx = np.random.randint(bak.shape[0]-obj.shape[0])
-                indexy = np.random.randint(bak.shape[1]-obj.shape[1])
-                bak[indexx:indexx+obj.shape[0],indexy:indexy+obj.shape[1]] = obj
+        # Generate the object map
+        objects = self.gen_objects(size=size)
 
-            # Place code randomly on background
-            code, codesize, rotation = sample(self.code_images, 1)[0]
-            indexx = np.random.randint(bak.shape[0]-codesize)
-            indexy = np.random.randint(bak.shape[1]-codesize)
-            block = bak[indexx:indexx+codesize,indexy:indexy+codesize]
-            code[code==69] = block[code==69]
-            bak[indexx:indexx+codesize,indexy:indexy+codesize] = code
+        # Add the object to the background
+        background = background + objects
 
-            # Calculate which section code is in [0,8]
-            sectionx = (indexx+codesize/2)//(bak.shape[0]//3)
-            sectiony = (indexy+codesize/2)//(bak.shape[1]//3)
-            section = int(sectionx*3+sectiony)
+        # Add the landing pad to the background
+        background = background + landing
 
-            # noise and stuff
-            darken_ratio = 0.5+np.random.random()*0.5
-            bak = bak*darken_ratio
-            bak += np.random.randint(-5,5,size=bak.shape).astype("int8")
-            grayscale = np.random.randint(2)
-            if grayscale:
-                bak = np.stack([bak.mean(axis=-1)]*3, axis=-1).astype("int16")
+        # Clip the background
+        background = torch.clamp(background, 0, 1)
 
-            # Finalize
-            self.rotations.append([rotation/360, 1-(rotation/360)])
-            self.sections.append(section)
-            self.images[n] = bak
+        return background.float(), labels
 
-        self.images[self.images<0] = 0
-        self.images = self.images.astype("float16")/255.0
+    # Generate a random object map
+    def gen_objects(self, size=(3,1024,1024)):
 
-        self.rotations = np.array(self.rotations)
+        # How many objects?
+        n_objects = torch.randint(0, 10, (1,)).item()
 
-        # Convert labels to one hot
-        self.sections = np.array(self.sections)
-        unique_cats = set(self.sections)
-        assert len(unique_cats) == self.n_sections
-        self.onehot = np.empty((self.sections.shape[0],self.n_sections), dtype="bool")
-        for n in unique_cats:
-            self.onehot[self.sections==n] = [i==n for i in range(self.n_sections)]
+        # What size?
+        max_size = min(size[1], size[2])//8
+        min_size = max_size//4
+        w = torch.randint(min_size, max_size, (n_objects,))
+        h = torch.randint(min_size, max_size, (n_objects,))
 
-    def genCode(self, size=8, rotation=False):
-        assert size%8 == 0
-        code = np.ones((size,size), dtype="uint8")*255
-        edge = size//8
-        width = size//4
-        code[edge:edge+width,edge:edge+width] = 0
-        code[-edge-width:-edge,edge:edge+width] = 0
-        code[-edge-width:-edge,-edge-width:-edge] = 0
+        # Where on the image?
+        x = torch.randint(0, size[1]-max_size, (n_objects,))
+        y = torch.randint(0, size[2]-max_size, (n_objects,))
 
-        # Rotate
-        if rotation:
-            frame = np.zeros((size*3,size*3), dtype="uint8")
-            frame[:,:] = 69
-            frame[size:size+size, size:size+size] = code
-            code = self.rotate_image(frame, rotation, crop=True)
-            code = cv2.resize(code, (size,size))
-        return np.stack([code]*3, axis=-1)
+        # What objects?
+        object_idxs = torch.randint(0, len(self.objects), (n_objects,))
 
-    def rotate_image(self, image, angle, crop=True):
-        image_center = tuple(np.array(image.shape[1::-1]) / 2)
-        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-        result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+        # Generate the object map
+        objects = torch.zeros(size)
+        for i in range(n_objects):
+            object = self.objects[object_idxs[i]]
+            # Resize the object
+            object = F.interpolate(object.unsqueeze(0), size=(w[i],h[i]), mode="bilinear")
+            object[object == 1] = 0
+            objects[:, x[i]:x[i]+w[i], y[i]:y[i]+h[i]] = object.squeeze(0)
 
-        # Crop out black edges
-        def rotatedRectWithMaxArea(w, h, angle):
-            """
-            Given a rectangle of size wxh that has been rotated by 'angle' (in
-            radians), computes the width and height of the largest possible
-            axis-aligned rectangle (maximal area) within the rotated rectangle.
-            """
-            if w <= 0 or h <= 0:
-                return 0,0
+        return objects
 
-            width_is_longer = w >= h
-            side_long, side_short = (w,h) if width_is_longer else (h,w)
+    # Generate a random background image
+    def gen_background(self, size=(3,1024,1024)):
 
-            # since the solutions for angle, -angle and 180-angle are all the same,
-            # if suffices to look at the first quadrant and the absolute values of sin,cos:
-            sin_a, cos_a = abs(math.sin(angle)), abs(math.cos(angle))
-            if side_short <= 2.*sin_a*cos_a*side_long or abs(sin_a-cos_a) < 1e-10:
-                # half constrained case: two crop corners touch the longer side,
-                #   the other two corners are on the mid-line parallel to the longer line
-                x = 0.5*side_short
-                wr,hr = (x/sin_a,x/cos_a) if width_is_longer else (x/cos_a,x/sin_a)
-            else:
-                # fully constrained case: crop touches all 4 sides
-                cos_2a = cos_a*cos_a - sin_a*sin_a
-                wr,hr = (w*cos_a - h*sin_a)/cos_2a, (h*cos_a - w*sin_a)/cos_2a
-            return int(wr),int(hr)
+        # Select a random background
+        background = self.backgrounds[torch.randint(0, len(self.backgrounds), (1,)).item()]
 
-        if crop:
-            crop_size = rotatedRectWithMaxArea(image.shape[0], image.shape[1], angle*pi/180)
-            crop_start = [(image.shape[0]-crop_size[0])//2, (image.shape[1]-crop_size[1])//2] 
-            result = cv2.resize(result[crop_start[0]:crop_start[0]+crop_size[0],
-                                     crop_start[1]:crop_start[1]+crop_size[1]],
-                                image.shape[:2])
+        # Resize the background
+        background = F.interpolate(background.unsqueeze(0), size=size[1:])
 
-        return result
+        return background.squeeze(0)
 
+    # Generate a landing pad with 3 white squares in a triangle
+    # Maintain a small border around the edge of the pad
+    # Overlay on larger background
+    def gen_landing(self, size=(3,1024,1024)):
+
+        landing_size = torch.randint(size[1]//16, size[1]//4, (1,)).item()
+        
+        # Landing pad assets
+        background = torch.zeros(size)
+        landing_pad_shape = (landing_size, landing_size)
+        landing_pad = torch.zeros(landing_pad_shape) - 1
+        edge_buffer = landing_size//8
+
+        # Generate the landing pad
+        landing_pad[edge_buffer:edge_buffer+landing_size//3, edge_buffer:edge_buffer+landing_size//3] = 1
+        landing_pad[edge_buffer:edge_buffer+landing_size//3, -edge_buffer-landing_size//3:-edge_buffer] = 1
+        landing_pad[-edge_buffer-landing_size//3:-edge_buffer, edge_buffer:edge_buffer+landing_size//3] = 1
+
+        # Randomly rotate the landing pad
+        rotation = torch.randint(0, 360, (1,))
+        landing_pad = rotate(landing_pad.unsqueeze(0), rotation.item())
+
+        # Place randomly on the background
+        x = torch.randint(0, size[1]-landing_size, (1,))
+        y = torch.randint(0, size[2]-landing_size, (1,))
+        background[:,
+                   x.item():x.item()+landing_size,
+                   y.item():y.item()+landing_size] = landing_pad
+        
+        # Get bounding box for landing pad
+        x_min = x.item()
+        x_max = x.item()+landing_size
+        y_min = y.item()
+        y_max = y.item()+landing_size
+
+        bounding_box = torch.tensor([y_min, x_min, y_max, x_max]) / size[1]
+
+        return background, {"rot": rotation.squeeze(),
+                            "bbox": bounding_box,}
+
+    def __len__(self):
+        return self.n_samples
+    
+    def __getitem__(self, idx):
+        return self.landing_buffer[idx]
 
 if __name__ == "__main__":
+    # Generate a dataset
+    dataset = LandingDataset(n_samples=1000)
 
-    qrdataset = QRDataset(n_samples=1000)
-    for image, section in zip(qrdataset.images, qrdataset.sections):
-        cv2.imshow(f"Section {section}", image.astype("float32"))
-        cv2.waitKey(250)
+    # Display some samples
+    import matplotlib.pyplot as plt
+    for i in range(10):
+        plt.imshow(dataset[i][0].numpy().transpose(1,2,0))
+        plt.show()

@@ -1,121 +1,114 @@
-import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
-from tensorflow.keras import callbacks
-from tensorflow.keras import datasets, layers, models, regularizers
-from tensorflow.keras import Input, Model
+# Description: Train a torch CNN to locate and rotate a qr code
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from sklearn.metrics import classification_report
-from datetime import datetime
-import numpy as np
-import cv2
+from torch.utils.tensorboard import SummaryWriter
 
-from dataset import QRDataset
-from multiprocessing import Pool
+from dataset import LandingDataset
 
-def rotate_image(image, angle):
-    image_center = tuple(np.array(image.shape[1::-1]) / 2)
-    rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-    result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
-    return result
+device = torch.device("cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+
+# CNN to locate and rotate a qr code
+class Net(nn.Module):
+    
+        def __init__(self):
+            super(Net, self).__init__()
+    
+            # Convolutional layers
+            self.conv1 = nn.Conv2d(3, 16, 3, padding=1)
+            self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
+            self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
+            self.conv4 = nn.Conv2d(64, 128, 3, padding=1)
+            self.conv5 = nn.Conv2d(128, 256, 3, padding=1)
+
+            # Fully connected layers
+            self.fc1 = nn.Linear(256*16*16, 4)
+
+        def forward(self, x):
+            # Convolutional layers
+            x = F.relu(self.conv1(x))
+            x = F.max_pool2d(x, 2)
+            x = F.relu(self.conv2(x))
+            x = F.max_pool2d(x, 2)
+            x = F.relu(self.conv3(x))
+            x = F.max_pool2d(x, 2)
+            x = F.relu(self.conv4(x))
+            x = F.max_pool2d(x, 2)
+            x = F.relu(self.conv5(x))
+            x = F.max_pool2d(x, 2)
+
+            # Fully connected layers
+            x = x.view(-1, 256*16*16)
+            x = self.fc1(x)
+            x = F.sigmoid(x)
+
+            return x
+        
+# Custom loss function
+def custom_loss(outputs, labels):
+
+    # Get the labels
+    bbox_label = labels["bbox"].to(device).float()
+
+    # Get the preds
+    bbox_pred = outputs
+
+    # Calculate the MSE loss
+    loss = F.mse_loss(bbox_pred, bbox_label)
+
+    return loss
+
+# Train the model
+def train():
+         
+        # Create the dataset
+        dataset = LandingDataset(n_samples=10000, image_size=(3,512,512))
+        dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    
+        # Create the model
+        model = Net().to(device)
+    
+        # Create the optimizer
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    
+        # Create the tensorboard writer
+        writer = SummaryWriter()
+
+        # Train the model
+        for _ in range(10):
+            bar = tqdm(dataloader)
+            for data in bar:
+    
+                # Get the inputs
+                inputs, labels = data
+    
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+    
+                # Forward + backward + optimize
+                outputs = model(inputs.to(device))
+                loss = custom_loss(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+                # Update the progress bar
+                bar.set_description("Loss: %.4f" % loss.item())
+
+                # Log the loss
+                writer.add_scalar("Loss", loss.item())
+    
+        # Save the model as torchscript jit
+        model.eval().to("cpu")
+        example = torch.rand(1, 3, 512, 512)
+        traced_script_module = torch.jit.trace(model, example)
+        traced_script_module.save("model.pt")
 
 if __name__ == "__main__":
-    with tf.device('/gpu:1'):
-
-        train = QRDataset(n_samples=200000)
-        val = QRDataset(n_samples=20000)
-
-        conv_reg = regularizers.L1L2(l1=1e-5, l2=1e-5)
-        dense_reg = regularizers.L1L2(l1=1e-5, l2=1e-5)
-
-        inputs = Input(shape=val.image_size, name="input")
-
-        # Common
-        x = layers.Conv2D(16, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg,)(inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(32, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg,)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-
-        x = layers.Conv2D(64, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(64, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(64, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x = layers.Conv2D(64, (3, 3),
-                        padding="valid",
-                        activation='linear',
-                        kernel_regularizer=conv_reg)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.ReLU()(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x_flat = layers.Flatten()(x)
-
-        # Localization
-        output0 = layers.Dense(128,
-                               kernel_regularizer=dense_reg,
-                               activation="relu")(x_flat)
-        output0 = layers.Dense(val.n_sections,
-                            kernel_regularizer=dense_reg,
-                            activation="softmax",
-                            name="section_out")(output0)
-
-        # Rotation
-        output1 = layers.Dense(128,
-                               kernel_regularizer=dense_reg,
-                               activation="relu")(x_flat)
-        output1 = layers.Dense(2,
-                            kernel_regularizer=dense_reg,
-                            activation="softmax",
-                            name="rot_out")(output1)
-
-        model = Model(inputs=inputs, outputs=[output0, output1])
-        model.summary()
-
-        model.compile(optimizer='adam',
-                      loss={'section_out': 'categorical_crossentropy',
-                            'rot_out': 'mae'},
-                      metrics={'section_out': 'categorical_accuracy'})
-
-        log_dir = 'tensorboard/'+datetime.now().strftime("%d/%m-%H:%M")
-        callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
-        model.fit(train.images, [train.onehot, train.rotations],
-                  batch_size=256,
-                  validation_data=(val.images, [val.onehot, val.rotations]),
-                  epochs=100,
-                  callbacks=callbacks)
-        model.save("cab")
-
-    input("Press enter to continue with demo")
-    for image, label in zip(val.images, val.sections):
-        sect, rot = model.predict(np.expand_dims(image, axis=0))
-        rev_rot = int(-rot[0][0]*360)
-        pred_label = np.argmax(sect[0])
-        image = (image*255).astype("uint8")
-        cv2.imshow(f"{pred_label}", cv2.resize(image, (128,128)))
-        cv2.imshow(f"rotated", rotate_image(cv2.resize(image, (128,128)), rev_rot))
-        cv2.waitKey(500)
+    train()
