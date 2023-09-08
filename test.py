@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torchvision.transforms.functional import rotate
 import cv2
+import numpy as np
 
 from dataset import LandingDataset
 
@@ -24,8 +25,11 @@ for image, labels in dataset:
     with torch.no_grad():
         pred = model(image.unsqueeze(0))
     bbox_pred = (pred[0].squeeze().numpy()*512).astype('int')
-    rot_pred = (pred[1].squeeze().numpy()*360).astype('int')
-    rot_pred = rot_pred[0]
+    rot_pred = (pred[1].squeeze().numpy()).astype('int')
+
+    # Convert sin and cos rot pred to degrees
+    rot_pred = int(np.arctan2(rot_pred[0], rot_pred[1]) * 180 / np.pi)
+    rot_label = int(np.arctan2(rot_label[0], rot_label[1]) * 180 / np.pi)
 
     # Create bounding boxes on the image
     image = image.numpy().transpose(1,2,0)*255
@@ -46,7 +50,7 @@ for image, labels in dataset:
     )
 
     # Rotate the image
-    image = rotate(torch.tensor(image.transpose(2,0,1)), -rot_pred.item())
+    image = rotate(torch.tensor(image.transpose(2,0,1)), -rot_pred)
     image = image.numpy().transpose(1,2,0)
 
     # Display the image

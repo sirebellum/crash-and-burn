@@ -140,7 +140,11 @@ class LandingDataset(Dataset):
 
         bounding_box = torch.tensor([y_min, x_min, y_max, x_max]) / size[1]
 
-        return background, {"rot": rotation.squeeze()/360,
+        # Determine rotation angles in terms of sin and cos
+        rotation = torch.tensor([torch.sin(rotation*2*3.14159/360),
+                                 torch.cos(rotation*2*3.14159/360)])
+
+        return background, {"rot": rotation,
                             "bbox": bounding_box,}
 
     def __len__(self):

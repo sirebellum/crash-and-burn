@@ -26,8 +26,6 @@ def custom_loss(outputs, labels):
     # Get the labels
     bbox_label = labels["bbox"].to(device).float()
     rot_label = labels["rot"].to(device).float()
-    rot_label_n = 1 - rot_label
-    rot_label = torch.stack((rot_label, rot_label_n), dim=1)
 
     # Get the preds
     bbox_pred = outputs[0]
@@ -36,7 +34,7 @@ def custom_loss(outputs, labels):
     # Calculate the bbox loss
     loss = F.mse_loss(bbox_pred, bbox_label)
 
-    # Calculate the rotation loss
+    # Calculate the rot loss
     loss += F.mse_loss(rot_pred, rot_label)
 
     return loss
@@ -49,7 +47,7 @@ def train():
     
         # Create the optimizer
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-    
+
         # Create the tensorboard writer
         writer = SummaryWriter()
 

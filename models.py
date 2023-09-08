@@ -47,6 +47,6 @@ class Net(nn.Module):
 
             # Rot
             rot = self.fc_rot(x)
-            rot = F.softmax(rot, dim=1)
+            rot = F.tanh(rot)
 
             return bbox, rot
