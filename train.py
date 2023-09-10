@@ -42,43 +42,40 @@ def custom_loss(outputs, labels):
 # Train the model on bounding boxes
 def train():
          
-        # Create the model
-        model = Net().to(device)
-    
-        # Create the optimizer
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    # Create the model
+    model = Net().to(device)
 
-        # Create the tensorboard writer
-        writer = SummaryWriter()
+    # Create the optimizer
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
-        # Train the model
-        for _ in range(42):
-            bar = tqdm(dataloader)
-            for data in bar:
-    
-                # Get the inputs
-                inputs, labels = data
-    
-                # Zero the parameter gradients
-                optimizer.zero_grad()
-    
-                # Forward + backward + optimize
-                outputs = model(inputs.to(device))
-                loss = custom_loss(outputs, labels)
-                loss.backward()
-                optimizer.step()
+    # Create the tensorboard writer
+    writer = SummaryWriter()
 
-                # Update the progress bar
-                bar.set_description("Loss: %.4f" % loss.item())
+    # Train the model
+    for _ in range(24):
+        bar = tqdm(dataloader)
+        for data in bar:
 
-                # Log the loss
-                writer.add_scalar("Loss", loss.item())
-    
-        # Save the model as torchscript jit
-        model.eval().to("cpu")
-        example = torch.rand(1, 3, 512, 512)
-        traced_script_module = torch.jit.trace(model, example)
-        traced_script_module.save("model.pt")
+            # Get the inputs
+            inputs, labels = data
+
+            # Zero the parameter gradients
+            optimizer.zero_grad()
+
+            # Forward + backward + optimize
+            outputs = model(inputs.to(device))
+            loss = custom_loss(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            # Update the progress bar
+            bar.set_description("Loss: %.4f" % loss.item())
+
+            # Log the loss
+            writer.add_scalar("Loss", loss.item())
+
+    # Save the model
+    torch.save(model.state_dict(), "model.pt")
 
 
 if __name__ == "__main__":
