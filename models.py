@@ -1,6 +1,9 @@
 # Description: Contains the CNN model used to locate and rotate a qr code
+import torch
 from torch import nn
 import torch.nn.functional as F
+
+IMAGE_SIZE=256
 
 # CNN to locate and rotate a qr code
 class Net(nn.Module):
@@ -9,34 +12,32 @@ class Net(nn.Module):
             super(Net, self).__init__()
     
             # Convolutional layers
-            self.conv1 = nn.Conv2d(3, 16, 3, padding=1)
-            self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
-            self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
-            self.conv4 = nn.Conv2d(64, 128, 3, padding=1)
-            self.conv5 = nn.Conv2d(128, 256, 3, padding=1)
+            self.n_layers = 5
+            self.convs = nn.ModuleList()
+            for n in range(self.n_layers):
+                if n==0:
+                    self.convs.append(nn.Conv2d(3, 16, 3, padding=1))
+                else:
+                    self.convs.append(nn.Conv2d(16*(2**(n-1)), 16*(2**n), 3, padding=1))
 
             # FC
-            self.fc = nn.Linear(256*16*16, 1024)
+            self.flattened_size = 16*(2**(self.n_layers-1))*((IMAGE_SIZE//(2**self.n_layers))**2)
+            self.fc = nn.Linear(self.flattened_size, 128)
 
             # BBox
-            self.fc_bbox = nn.Linear(1024, 4)
+            self.fc_bbox = nn.Linear(128, 4)
 
             # Rot
-            self.fc_rot = nn.Linear(1024, 2)
+            self.fc_rot = nn.Linear(128, 2)
 
         def forward(self, x):
             # Convolutional layers
-            x = F.relu(self.conv1(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv2(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv3(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv4(x))
-            x = F.max_pool2d(x, 2)
-            x = F.relu(self.conv5(x))
-            x = F.max_pool2d(x, 2)
-            x = x.view(-1, 256*16*16)
+            for conv in self.convs:
+                x = F.relu(conv(x))
+                x = F.max_pool2d(x, 2)
+            
+            # Flatten
+            x = x.view(-1, self.flattened_size)
 
             # FC
             x = F.relu(self.fc(x))
@@ -49,4 +50,7 @@ class Net(nn.Module):
             rot = self.fc_rot(x)
             rot = F.tanh(rot)
 
-            return bbox, rot
+            # Concatenate the outputs
+            out = torch.cat((bbox, rot), 1)
+
+            return out

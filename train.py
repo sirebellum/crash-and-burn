@@ -8,10 +8,10 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset import LandingDataset
-from models import Net
+from models import Net, IMAGE_SIZE
 
 # Create the dataset
-dataset = LandingDataset(n_samples=10000, image_size=(3,512,512))
+dataset = LandingDataset(n_samples=10000, image_size=(3,IMAGE_SIZE,IMAGE_SIZE))
 dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
 device = torch.device("cpu")
@@ -28,8 +28,8 @@ def custom_loss(outputs, labels):
     rot_label = labels["rot"].to(device).float()
 
     # Get the preds
-    bbox_pred = outputs[0]
-    rot_pred = outputs[1]
+    bbox_pred = outputs[:, :4]
+    rot_pred = outputs[:, 4:]
 
     # Calculate the bbox loss
     loss = F.mse_loss(bbox_pred, bbox_label)
@@ -52,7 +52,7 @@ def train():
     writer = SummaryWriter()
 
     # Train the model
-    for _ in range(24):
+    for _ in range(100):
         bar = tqdm(dataloader)
         for data in bar:
 
@@ -74,8 +74,11 @@ def train():
             # Log the loss
             writer.add_scalar("Loss", loss.item())
 
-    # Save the model
-    torch.save(model.state_dict(), "model.pt")
+    # Save the model as torchscript jit
+    model.eval().to("cpu")
+    example = torch.rand(1, 3, IMAGE_SIZE, IMAGE_SIZE)
+    traced_script_module = torch.jit.trace(model, example)
+    traced_script_module.save("model.pt")
 
 
 if __name__ == "__main__":
