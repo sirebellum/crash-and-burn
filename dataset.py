@@ -60,6 +60,9 @@ class LandingDataset(Dataset):
         # Clip the background
         background = torch.clamp(background, 0, 1)
 
+        # Avg to grayscale
+        background = background.mean(0).unsqueeze(0)
+
         return background.float(), labels
 
     # Generate a random object map

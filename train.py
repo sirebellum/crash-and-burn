@@ -52,7 +52,7 @@ def train():
     writer = SummaryWriter()
 
     # Train the model
-    for _ in range(100):
+    for _ in range(15):
         bar = tqdm(dataloader)
         for data in bar:
 
@@ -76,7 +76,7 @@ def train():
 
     # Save the model as torchscript jit
     model.eval().to("cpu")
-    example = torch.rand(1, 3, IMAGE_SIZE, IMAGE_SIZE)
+    example = torch.rand(1, 1, IMAGE_SIZE, IMAGE_SIZE)
     traced_script_module = torch.jit.trace(model, example)
     traced_script_module.save("model.pt")
 

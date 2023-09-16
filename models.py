@@ -16,7 +16,7 @@ class Net(nn.Module):
             self.convs = nn.ModuleList()
             for n in range(self.n_layers):
                 if n==0:
-                    self.convs.append(nn.Conv2d(3, 16, 3, padding=1))
+                    self.convs.append(nn.Conv2d(1, 16, 3, padding=1))
                 else:
                     self.convs.append(nn.Conv2d(16*(2**(n-1)), 16*(2**n), 3, padding=1))
 

@@ -6,9 +6,10 @@ import cv2
 import numpy as np
 
 from dataset import LandingDataset
+from models import IMAGE_SIZE
 
 # Load dataset
-dataset = LandingDataset(n_samples=10, image_size=(3,512,512))
+dataset = LandingDataset(n_samples=10, image_size=(3,IMAGE_SIZE,IMAGE_SIZE))
 
 # Load the model
 model = torch.jit.load('model.pt')
@@ -17,15 +18,16 @@ for image, labels in dataset:
 
     # Get the labeks
     rot_label = labels['rot'].numpy() * 360
-    bbox_label = labels['bbox'].numpy() * 512
+    bbox_label = labels['bbox'].numpy() * IMAGE_SIZE
     bbox_label = bbox_label.astype('int')
     rot_label = rot_label.astype('int')
 
     # Get the preds
     with torch.no_grad():
         pred = model(image.unsqueeze(0))
-    bbox_pred = (pred[0].squeeze().numpy()*512).astype('int')
-    rot_pred = pred[1].squeeze().numpy()
+    bbox_pred = pred[0, :4].numpy() * IMAGE_SIZE
+    bbox_pred = bbox_pred.astype('int')
+    rot_pred = pred[0, 4:].numpy()
 
     # Convert sin and cos rot pred to degrees
     rot_pred = int(np.arctan2(rot_pred[0], rot_pred[1]) * 180 / np.pi)
